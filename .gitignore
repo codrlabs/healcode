@@ -1,0 +1,12 @@
+# Obsidian settings (user-specific, should not be committed)
+obsidian/.obsidian/
+
+# Optional: Obsidian trash folder
+# obsidian/.trash/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Cache folders
+*.cache
