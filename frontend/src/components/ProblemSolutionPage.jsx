@@ -1,4 +1,4 @@
-import './ProblemSolutionPage.css'
+import './styles/ProblemSolutionPage.css'
 
 /**
  * Displays a single problem's details and how to fix it.
