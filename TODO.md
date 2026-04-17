@@ -1,0 +1,1 @@
+- [x] Edit frontend/src/landingPage.jsx to navigate on scan instead of mock display
