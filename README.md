@@ -106,7 +106,7 @@ are often expensive or limited.
 - **Frontend**: React 19 + Vite 7
 - **Backend**: Node 22 + Express 5
 - **Styling**: Plain CSS
-- **Testing**: Jest + React Testing Library (frontend)
+- **Testing**: Vitest + React Testing Library (frontend)
 - **Container**: Docker (Node 22-alpine) + Docker Compose
 
 ### Future Stack
@@ -133,7 +133,7 @@ For details and recovery from common Git mistakes, see
 ```bash
 # Frontend
 cd frontend
-npm test          # Jest + React Testing Library
+npm test          # Vitest + React Testing Library
 npm run lint
 npm run build
 

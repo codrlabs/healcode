@@ -211,8 +211,8 @@ section of [`axecore-integration-roadmap.md`](axecore-integration-roadmap.md).
       the mock.
 - [ ] Add a `backend/README.md` with "how to run", "how to test", and
       the env-var table from `.env.example`.
-- [ ] Add a frontend Jest test for `ScanResults.jsx` that renders the
-      mock fixture and asserts the three buckets are visible.
+- [ ] Add a frontend Vitest test for `ScanResults.jsx` that renders
+      the mock fixture and asserts the three buckets are visible.
 - [ ] Replace the 1.2 s `setTimeout` in `landingPage.jsx` with a named
       constant + comment (no behavior change), so Phase 3 has a clear
       thing to delete.
@@ -286,7 +286,7 @@ state, and land on a results page they can share by URL.
 - [ ] Add focus-visible styles and a "skip to main content" link on
       the landing page.
 - [ ] Add basic `<title>` and `<meta name="description">` per route.
-- [ ] Write a Jest test asserting the "Needs manual review" bucket
+- [ ] Write a Vitest test asserting the "Needs manual review" bucket
       renders when the fixture contains `incomplete` items.
 - [ ] Add a small "About / How this works" page reachable from the
       landing page.
