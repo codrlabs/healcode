@@ -35,8 +35,11 @@ leave it in place for history.
 - [`plans/axecore-integration-roadmap.md`](plans/axecore-integration-roadmap.md)
   — Replace mock scan data with a real axe-core scanner.
 - [`plans/codebase-reorganization.md`](plans/codebase-reorganization.md)
-  — Phase-1 + Phase-3 router reorg log; final repo layout and the
-  migration mapping from old → new file paths.
+  — Post-mortem of the Phase 1 + Phase 3 reorg (PRs #38–#40):
+  before/after tables and the rationale for each file move. The
+  current layout itself lives in the top-level
+  [`README.md`](../README.md); the architectural target lives in
+  [`plans/architecture-map.md`](plans/architecture-map.md) §6.
 
 ## Research
 

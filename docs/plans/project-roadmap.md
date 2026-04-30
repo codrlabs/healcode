@@ -83,38 +83,39 @@ data and Deque University owns the long-form remediation content.
 3. Decisions get recorded here or in a sub-roadmap, not in chat.
 4. Tests come in alongside the code that needs them, not "later".
 
-## Open decisions (lock in before they block a phase)
+## Decisions
 
-These gate specific phases. Until resolved, leave the corresponding
-checkboxes unchecked.
+### Resolved
 
-- [ ] **Frontend routing**: keep `window.location.pathname` switch in
-      `App.jsx` or adopt `react-router`? A real scan should produce a
-      shareable results URL, which favors a router. (Blocks Phase 3.)
-- [ ] **Scan API shape**: now that we know axe's native shape (above),
-      pick one:
-      - **A.** Pass through axe's four arrays largely as-is and let the
-        frontend group/sort. Flexible, less backend logic, but the
-        response is large.
+- **Frontend routing** → `react-router-dom` v7 (`BrowserRouter` +
+  `Routes` in `src/App.jsx`, pages in `src/pages/`). Shipped in PR #40.
+- **Backend test runner** → `node:test` + `supertest` via
+  `node --test tests/`. No extra dev deps beyond `supertest`. Shipped
+  in PR #38.
+- **SSRF policy** → block non-`http(s)` schemes (`file:`, `data:`,
+  `javascript:`, …), `localhost`, and RFC1918 / loopback IPs.
+  Implemented in `backend/services/ssrfGuard.js`. Shipped in PR #38.
+
+### Still open
+
+- [ ] **Scan API shape** (blocks Phase 2). Pick one:
+      - **A.** Pass through axe's four arrays as-is and let the
+        frontend group/sort. Flexible, less backend logic, larger
+        response.
       - **B.** Keep the current bucketed shape
         (`{ problems: { visualAccessibility, structureAndSemantics, multimedia }, whatsGood }`)
         and map axe `tags` → buckets in
         `services/axeTransformer.js`. Smaller payload, opinionated UI,
         but loses `incomplete` and per-node detail unless we extend it.
       - **C.** Hybrid: bucketed summary **plus** the raw axe arrays
-        under `raw`, so the UI can drill in. (Blocks Phase 2.)
-- [ ] **Sync vs async scan**: does `POST /api/scan` block, or return a
-      `jobId` to poll? Default: sync with a generous timeout for Phase
-      2; revisit in Phase 5. (Blocks Phase 2.)
-- [ ] **SSRF policy**: confirm the URL allow/deny rules — block
-      `file://`, `data:`, private IP ranges, `localhost`, and require
-      `http(s)`. (Blocks Phase 2.)
-- [ ] **Backend test runner**: Jest + supertest (matches the existing
-      guide) vs Vitest. Default: Jest + supertest. (Blocks Phase 1.)
+        under `raw`, so the UI can drill in.
+- [ ] **Sync vs async scan** (blocks Phase 2). Does `POST /api/scan`
+      block, or return a `jobId` to poll? Default: sync with a generous
+      timeout for Phase 2; revisit in Phase 6.
 
 ---
 
-## Phase 0 — Housekeeping (in flight)
+## Phase 0 — Housekeeping (complete)
 
 Goal: a clean repo that an outsider can read in 10 minutes.
 
@@ -146,10 +147,11 @@ Goal: a clean repo that an outsider can read in 10 minutes.
   - [x] Confirm `frontend/`'s `react-router` / `react-router-dom`
         deps stay (already installed; unblocks the Phase 3 routing
         work without re-running `npm install`).
-- [ ] Open PR for the cleanup + this roadmap update and merge.
+- [x] Open PR for the cleanup + this roadmap update and merge
+      (PRs #36, #37).
 
 **Done when:** the cleanup PR is merged into `main` and
-`frontend/src/__tests__/` is the canonical test folder.
+`frontend/src/__tests__/` is the canonical test folder. ✅
 
 ### 🎓 Intern tasks after Phase 0
 
@@ -174,34 +176,38 @@ PR.
 
 ---
 
-## Phase 1 — Backend foundations for a real scanner
+## Phase 1 — Backend foundations for a real scanner (complete)
 
 Goal: structure the backend so a real scanner can drop in without
 rewriting routing and so we can write tests for it.
 
-Depends on: open decision *Backend test runner*.
+Shipped in PR #38. See
+[`codebase-reorganization.md`](codebase-reorganization.md) for the
+before/after detail.
 
-- [ ] Split `backend/index.js`: move route handlers into
+- [x] Split `backend/index.js`: move route handlers into
       `backend/routes/scan.js` (`express.Router`).
-- [ ] Add `backend/controllers/scanController.js` that today still
+- [x] Add `backend/controllers/scanController.js` that today still
       returns `mockScanResults` — same response, just relocated. Bind
       handlers correctly (avoid the known `this`-binding bug
       documented in
       [`axecore-integration.md`](../guides/axecore-integration.md)).
-- [ ] Add `backend/services/axeTransformer.js` as a stub with a typed
+- [x] Add `backend/services/axeTransformer.js` as a stub with a typed
       input → output contract derived from the axe shape above. Cover
       it with a unit test using a captured axe payload as a fixture.
-- [ ] Wire up the chosen test runner (`npm test` in `backend/`) and
-      add one supertest hitting `/health`.
-- [ ] Add `backend/.env.example` documenting `PORT` and
+- [x] Wire up the chosen test runner (`npm test` in `backend/`) and
+      add one supertest hitting `/health`. (Chose `node:test` +
+      `supertest`; see Resolved decisions above.)
+- [x] Add `backend/.env.example` documenting `PORT` and
       `FRONTEND_ORIGIN`; make `index.js` read `FRONTEND_ORIGIN` for
       CORS with a default of `http://localhost:5173`.
-- [ ] Add `backend/Dockerfile` and update `docker-compose.yml` to
+- [x] Add `backend/Dockerfile` and update `docker-compose.yml` to
       build it (no Puppeteer system deps yet — those land in Phase 2).
 
-**Done when:** `npm test` passes in `backend/`, `docker compose up`
-still serves the same JSON, and the file layout matches the "target"
-section of [`axecore-integration-roadmap.md`](axecore-integration-roadmap.md).
+**Done when:** `npm test` passes in `backend/` (17 / 17),
+`docker compose up` still serves the same JSON, and the file layout
+matches the "target" section of
+[`axecore-integration-roadmap.md`](axecore-integration-roadmap.md). ✅
 
 ### 🎓 Intern tasks after Phase 1
 
@@ -234,8 +240,11 @@ this phase is the high-level checkpoint.
 - [ ] `services/axeTransformer.js` implements the chosen response
       shape (Option A/B/C from the open decision). At minimum it must
       preserve, per violation: `id`, `help`, `helpUrl`, `impact`,
-      `tags`, and `nodes[].{html, target, failureSummary}`.
-- [ ] SSRF guard implemented and tested.
+      `tags`, and `nodes[].{html, target, failureSummary}`. (Stub +
+      contract shipped in PR #38; body still to write.)
+- [x] SSRF guard implemented and tested.
+      (`backend/services/ssrfGuard.js`, wired into both
+      `POST /api/scan` and `GET /api/scan-results`; PR #38.)
 - [ ] One end-to-end smoke test against a known-bad fixture page and
       a known-clean fixture page.
 - [ ] `mockScanResults.js` is only imported by tests, not by the
@@ -258,23 +267,25 @@ offending element(s) — for a real URL submitted from the landing page.
 
 ---
 
-## Phase 3 — UX upgrades
+## Phase 3 — UX upgrades (router shipped; data-driven UX pending Phase 2)
 
 Goal: the app feels like a product, not a demo.
 
-Depends on: open decision *Frontend routing*.
+The routing + page-component scaffolding shipped in PR #40 — the rest
+needs real axe data from Phase 2 before it can be wired up.
 
-- [ ] Resolve the routing question; if `react-router`, migrate
-      `App.jsx` and remove the pathname switch.
-- [ ] Replace the landing-page `setTimeout` with real navigation tied
-      to scan submission state (loading → results, with progress).
+- [x] Resolve the routing question; migrate `App.jsx` and remove the
+      pathname switch. (`react-router-dom` v7; PR #40.)
+- [x] Replace the landing-page `setTimeout` with real navigation tied
+      to scan submission state. (`useNavigate()` + `useScan` hook;
+      PR #40.)
 - [ ] Surface axe-core `incomplete` results as a "Needs manual
-      review" bucket.
+      review" bucket. (Needs Phase 2.)
 - [ ] Each problem links to its axe `helpUrl`; severity rendered as
-      a colored badge driven by `impact`.
+      a colored badge driven by `impact`. (Needs Phase 2.)
 - [ ] Sort violations by `impact` (`critical` → `serious` →
       `moderate` → `minor`); allow filtering by WCAG `tags`
-      (`wcag2a`, `wcag2aa`, `best-practice`).
+      (`wcag2a`, `wcag2aa`, `best-practice`). (Needs Phase 2.)
 - [ ] Pass an a11y audit on our own pages — run axe against
       `http://localhost:5173`.
 
@@ -408,6 +419,13 @@ These don't belong to a single phase — pick them up opportunistically.
 
 ## Change log for this roadmap
 
+- _2026-04-28_ — Post-reorg refresh: marked Phase 0 (cleanup PR),
+  Phase 1 (backend reorg, PR #38), and the routing/scaffolding parts
+  of Phase 3 (PR #40) as shipped. Split "Open decisions" into
+  "Resolved" (frontend routing, backend test runner, SSRF policy) and
+  "Still open" (scan API shape, sync vs async). Ticked the Phase 2
+  SSRF-guard line — the guard is implemented and wired into
+  `scanController` even though the real scan body is still pending.
 - _2026-04-27_ — Phase 0 housekeeping followup: removed dead UI from
   `landingPage.jsx` (placeholder Problems / What's Good sections that
   never render once the page redirects) and the no-op "Download PDF
