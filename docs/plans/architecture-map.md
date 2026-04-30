@@ -399,7 +399,9 @@ backend does**.
 
 ### 2.1 Landing screen — `/`
 
-**File:** `frontend/src/landingPage.jsx`
+**File:** `frontend/src/pages/LandingPage.jsx`
+**Helpers:** `frontend/src/utils/urlValidator.js` (pure URL check),
+`frontend/src/lib/apiClient.js` (the only file that calls `fetch`).
 
 **Purpose.** Single entry point. Get a URL from the user and send them
 to a results page for it.
@@ -409,37 +411,41 @@ to a results page for it.
 - Single text input (`type="url"`, labeled for screen readers).
 - "Scan" button (disabled while empty or while a scan is in flight,
   `aria-busy` while scanning).
+- Inline `role="alert"` validation message (replaced the old
+  `window.alert`).
 - Hidden hint text exposed to screen readers.
 
 **What the user can do.**
 - Type a URL and press Enter or click Scan.
-- See a basic client-side URL validation error (`alert`, **planned**:
-  inline message instead).
+- See an inline client-side URL validation error.
 
 **What happens on submit (current).**
-1. `new URL(url)` validates the format client-side.
+1. `urlValidator.isValidUrl(url)` validates the format client-side.
 2. State flips to `scanning`; button shows "Redirecting…".
-3. After a 1.2 s `setTimeout`, `window.location.href` jumps to
-   `/scan-results?url=<encoded>`. The actual scan request is fired by
-   the next screen, not here.
+3. `useNavigate()` pushes `/scan-results?url=<encoded>` — no full page
+   reload. The actual scan request is fired by the next screen, not
+   here.
 
-**What happens on submit (target — Phase 2/3).**
+**What happens on submit (target — Phase 2).**
 1. Validate URL.
 2. `POST /api/scan { url }` to kick off the scan.
-3. On success, navigate via the router (decision pending) to
-   `/scan-results?url=...` carrying either the results or a job id.
-4. Show real loading/progress while the scan runs (kill the
-   `setTimeout`).
+3. On success, `useNavigate()` to `/scan-results?url=...` carrying
+   either the results or a job id.
+4. Show real loading/progress while the scan runs.
 
 **What the backend does today.** Nothing. The submit on this screen is
-purely a redirect.
+purely a client-side route change.
 
 ---
 
 ### 2.2 Scan results screen — `/scan-results?url=...`
 
-**File:** `frontend/src/ScanResults.jsx`
-**Sub-component:** `frontend/src/components/ProblemSolutionPage.jsx`
+**File:** `frontend/src/pages/ScanResultsPage.jsx`
+**Sub-components:** `frontend/src/components/ProblemCategoryBox.jsx`,
+`frontend/src/components/WhatsGood.jsx`,
+`frontend/src/components/ProblemSolutionPage.jsx`
+**Hook:** `frontend/src/hooks/useScan.js` (owns the
+`{ data, loading, error }` state machine)
 
 **Purpose.** Show what the scanner found for the URL in the query
 string, grouped so a non-technical user can understand it.
@@ -461,11 +467,13 @@ string, grouped so a non-technical user can understand it.
 - Click "← New Scan" → back to landing.
 
 **What happens on load (current).**
-1. `useEffect` reads `?url=` from the query string.
-2. If missing → error state ("No URL provided in query params").
-3. Otherwise: `GET /api/scan-results?url=<encoded>` → render the JSON.
+1. `useSearchParams()` reads `?url=` from the query string.
+2. `useScan(url)` validates it (missing → error state) and calls
+   `apiClient.getScanResults(url)`.
+3. The hook returns `{ data, loading, error }`; the page renders the
+   matching state.
 4. Backend ignores the URL today and returns the same mock object
-   regardless.
+   regardless (until Phase 2 lands the real scanner).
 
 **What happens on load (target — Phase 2).**
 1. Same kickoff, but the backend really runs Puppeteer + axe-core for
@@ -473,23 +481,30 @@ string, grouped so a non-technical user can understand it.
    - the bucketed shape (Option B), **or**
    - bucketed summary + `raw` axe arrays (Option C).
    Decision tracked in
-   [`project-roadmap.md`](project-roadmap.md#open-decisions-lock-in-before-they-block-a-phase).
+   [`project-roadmap.md`](project-roadmap.md#still-open).
 2. Render violations sorted by `impact`.
 3. Render an "incomplete" bucket if non-empty.
 
 **What the backend does.**
-- **Today:** `GET /api/scan-results?url=...` returns
-  `backend/data/mockScanResults.js` verbatim.
-- **Target:** route → controller → Puppeteer (`page.goto(url)`) →
-  inject axe-core → `axe.run()` → `axeTransformer` → JSON.
+- **Today:** `GET /api/scan-results?url=...` is served by
+  `routes/scan.js` → `ScanController.getScanResults` → returns
+  `backend/data/mockScanResults.js` verbatim. The SSRF guard rejects
+  bad URLs before the controller hits the fixture.
+- **Target:** same route/controller, but the controller delegates to
+  `ScanRunner` → Puppeteer (`page.goto(url)`) → inject axe-core →
+  `axe.run()` → `axeTransformer` → JSON.
 
 ---
 
-### 2.3 Problem detail "screen" — in-page view
+### 2.3 Problem detail screen — `/problems/:id`
 
-**File:** `frontend/src/components/ProblemSolutionPage.jsx`
-**Routing:** none yet — it's conditional rendering inside
-`ScanResults.jsx` based on `selectedProblem` state.
+**File (page):** `frontend/src/pages/ProblemPage.jsx`
+**Component (in-results inline detail):**
+`frontend/src/components/ProblemSolutionPage.jsx`
+**Hook:** `frontend/src/hooks/useProblem.js`
+**Routing:** real route (`/problems/:id`) shipped in PR #40, so the
+detail view is now refresh-safe and shareable. The in-page click on a
+results card still uses local state for the side-by-side view.
 
 **Purpose.** Show one problem in depth: what it is, why it matters,
 how to fix it, and where it appears on the page that was scanned.
@@ -632,14 +647,24 @@ contract that matters.
 ```
 frontend/src/
 ├── main.jsx                       # React bootstrap
-├── App.jsx                        # routing — pathname switch today,
-│                                  #   react-router [planned, Phase 3]
-├── landingPage.jsx                # Screen 2.1
-├── ScanResults.jsx                # Screen 2.2 (also hosts 2.3 today)
+├── App.jsx                        # BrowserRouter + Routes
+├── pages/
+│   ├── LandingPage.jsx            # Screen 2.1
+│   ├── ScanResultsPage.jsx        # Screen 2.2
+│   └── ProblemPage.jsx            # Screen 2.3 (route /problems/:id)
 ├── components/
-│   └── ProblemSolutionPage.jsx    # Screen 2.3
+│   ├── ProblemSolutionPage.jsx    # In-results inline detail
+│   ├── ProblemCategoryBox.jsx     # extracted from ScanResults
+│   └── WhatsGood.jsx              # extracted from ScanResults
+├── hooks/
+│   ├── useScan.js                 # { data, loading, error } for results
+│   └── useProblem.js              # single-problem fetch
+├── lib/
+│   └── apiClient.js               # the only file that imports `fetch`
+├── utils/
+│   └── urlValidator.js            # pure URL sanity check
 ├── data/
-│   └── mockScanResults.js         # offline fallback for tests / dev
+│   └── mockScanResults.js         # vitest-only fixture
 ├── styles/                        # plain CSS per screen
 └── __tests__/                     # Vitest + React Testing Library
 ```
@@ -662,21 +687,24 @@ frontend/src/
 
 ```
 backend/
-├── index.js                       # express app + middleware + listen
+├── index.js                       # bootstrap: load .env, listen
+├── app.js                         # composition root (DI wiring)
 ├── routes/
-│   ├── scan.js                    # /api/scan, /api/scan-results,
-│   │                              #   /problems/:id  [planned, Phase 1]
+│   ├── index.js                   # mounts /api and /problems
+│   ├── scan.js                    # /api/scan, /api/scan-results
+│   ├── problems.js                # /problems/:id
 │   ├── auth.js                    # /api/auth/*  [planned, Phase 5]
 │   └── scans.js                   # /api/scans/* (history)  [planned, Phase 5]
 ├── controllers/
-│   ├── scanController.js          # request/response + drives Puppeteer
-│   │                              #   [planned, Phase 1]
+│   ├── scanController.js          # request/response, bound handlers
 │   ├── authController.js          # signup/login/logout/me  [planned, Phase 5]
 │   └── scansController.js         # list / get / delete saved scans  [planned, Phase 5]
 ├── services/
-│   ├── axeTransformer.js          # axe → API shape, pure function,
-│   │                              #   easy to unit test  [planned, Phase 1]
-│   └── auth.js                    # password hashing, JWT sign/verify
+│   ├── axeTransformer.js          # axe → API shape, pure function;
+│   │                              #   stub today, body in Phase 2
+│   ├── ssrfGuard.js               # URL allow/deny, pure function
+│   ├── scanRunner.js              # Puppeteer driver  [planned, Phase 2]
+│   └── authService.js             # password hashing, JWT sign/verify
 │                                  #   [planned, Phase 5]
 ├── middleware/
 │   └── requireAuth.js             # gate protected routes  [planned, Phase 5]
@@ -687,13 +715,16 @@ backend/
 │       ├── usersRepo.js
 │       └── scansRepo.js
 ├── data/
-│   └── mockScanResults.js         # used as a fixture in tests
-├── tests/                         # supertest + chosen runner
-│                                  #   [planned, Phase 1 — runner
-│                                  #   decision still open]
-├── Dockerfile                     # [planned, Phase 1]
-└── .env.example                   # PORT, FRONTEND_ORIGIN, JWT_SECRET,
-                                   #   DATABASE_URL  [planned, Phase 1/5]
+│   └── mockScanResults.js         # Phase-1 fixture (also used in tests)
+├── tests/                         # node:test + supertest
+│   ├── health.test.js
+│   ├── scan.test.js
+│   ├── ssrfGuard.test.js
+│   └── axeTransformer.test.js
+├── Dockerfile                     # node:22-alpine
+├── README.md                      # run / test / env tables
+└── .env.example                   # PORT, FRONTEND_ORIGIN
+                                   #   (JWT_SECRET, DATABASE_URL: P5)
 ```
 
 **Layered responsibilities.**
@@ -720,7 +751,7 @@ For each screen, the request → response contract is:
 | Problem      | (in-payload) **or** `GET /problems/:id` | one problem object                         |
 
 The exact JSON shape depends on the open "Scan API shape" decision in
-[`project-roadmap.md`](project-roadmap.md#open-decisions-lock-in-before-they-block-a-phase).
+[`project-roadmap.md`](project-roadmap.md#still-open).
 Whichever option wins, the per-violation fields we surface to the UI
 are fixed by axe-core itself: `id`, `help`, `helpUrl`, `impact`,
 `tags`, and `nodes[].{html, target, failureSummary}`. Those are the
@@ -736,12 +767,15 @@ moves.
 
 | Symptom                                                    | Likely file                              |
 | ---------------------------------------------------------- | ---------------------------------------- |
-| Landing page: clicking Scan does nothing                   | `frontend/src/landingPage.jsx`           |
-| Results page stays on "Fetching scan results..."           | network tab → `/api/scan-results` → `backend/index.js` (today) / `routes/scan.js` (target) |
-| Results render but a problem card crashes on click         | `frontend/src/ScanResults.jsx` (`setSelectedProblem` wiring) + `components/ProblemSolutionPage.jsx` |
-| CORS error in browser console                              | `backend/index.js` `cors({ origin })` and `FRONTEND_ORIGIN` env |
-| "MODULE_NOT_FOUND: cors" on backend start                  | `backend/package.json` (dep must live there, not at repo root) |
-| Scan returns 500 on a real URL                             | `controllers/scanController.js` Puppeteer error handling [planned, Phase 4] |
+| Landing page: clicking Scan does nothing                   | `frontend/src/pages/LandingPage.jsx` (+ `utils/urlValidator.js`) |
+| Landing page: navigates but results page is blank/errors   | `frontend/src/hooks/useScan.js` + `lib/apiClient.js` |
+| Results page stays on "Fetching scan results..."           | network tab → `/api/scan-results` → `backend/routes/scan.js` → `controllers/scanController.js` |
+| Results render but a problem card crashes on click         | `frontend/src/pages/ScanResultsPage.jsx` (`setSelectedProblem`) + `components/ProblemSolutionPage.jsx` |
+| `/problems/:id` deep link 404s                             | `frontend/src/pages/ProblemPage.jsx` + `hooks/useProblem.js` (frontend) and `backend/routes/problems.js` (backend) |
+| URL form submission rejected with "ssrf"                   | `backend/services/ssrfGuard.js`          |
+| CORS error in browser console                              | `backend/app.js` (`cors({ origin: process.env.FRONTEND_ORIGIN })`) and `backend/.env.example` |
+| "MODULE_NOT_FOUND" on backend start                        | `backend/package.json` (dep must live there, not at repo root) |
+| Scan returns 500 on a real URL                             | `services/scanRunner.js` Puppeteer error handling [planned, Phase 2/4] |
 | Same mock returned for every URL                           | expected today — until Phase 2 lands     |
 
 ---
@@ -787,13 +821,13 @@ Define it **once**, in a shared file that both sides can `@import`
 from JSDoc. No runtime cost; full editor autocomplete; survives the
 move to TypeScript later if we want it.
 
-Suggested location: `shared/types.js` at the repo root (re-exported
-from `backend/types.js` and `frontend/src/types.js` as thin
-wrappers, since neither tool resolves outside its own folder by
-default).
+Location: `shared/types.js` at the repo root (shipped in PR #38).
+Backend and frontend reference the typedefs via relative
+`@typedef {import('../../shared/types.js').…}` JSDoc imports — no
+build step, no runtime cost.
 
 ```js
-// shared/types.js  [planned, P1]
+// shared/types.js — shipped in PR #38
 
 /**
  * @typedef {'minor'|'moderate'|'serious'|'critical'} Impact
@@ -847,7 +881,7 @@ default).
 
 The exact shape of `ScanResult` is locked by the open "Scan API
 shape" decision in
-[`project-roadmap.md`](project-roadmap.md#open-decisions-lock-in-before-they-block-a-phase).
+[`project-roadmap.md`](project-roadmap.md#still-open).
 Whatever wins, **per-violation fields are fixed by axe** (id, help,
 helpUrl, impact, tags, nodes).
 
@@ -1092,34 +1126,49 @@ classes and wires them together. Everywhere else takes its
 dependencies via constructor or function arguments. This is what
 makes the layers unit-testable without a DI framework.
 
-**Backend composition root (`backend/app.js` or `backend/index.js`):**
+**Backend composition root (`backend/app.js`).**
+
+The skeleton is shipped — today it wires the controller against the
+mock fixture; the Phase-2 lines below are pseudo-code:
 
 ```js
-// pseudo-code — [planned, P1/P2]
-const pool       = new BrowserPool({ maxConcurrency: 2 });
-const runner     = new ScanRunner({ pool, transform, validateUrl });
-const scanCtrl   = new ScanController({ runner });
-const authSvc    = new AuthService({ jwtSecret: env.JWT_SECRET });   // P5
-const usersRepo  = new UsersRepo(db);                                 // P5
-const scansRepo  = new ScansRepo(db);                                 // P5
-const authCtrl   = new AuthController({ authSvc, usersRepo });        // P5
-const requireAuth = makeRequireAuth(authSvc);                         // P5
+// shipped (PR #38)
+const scanController = new ScanController({ mockScanResults, ssrfGuard });
+mountRoutes(app, { scanController });
 
-app.use('/api/scan',  makeScanRouter(scanCtrl));
-app.use('/api/auth',  makeAuthRouter(authCtrl));                      // P5
-app.use('/api/scans', requireAuth, makeScansRouter(scanCtrl, scansRepo)); // P5
+// [planned, P2] — replace mockScanResults with a real runner
+const pool       = new BrowserPool({ maxConcurrency: 2 });
+const runner     = new ScanRunner({ pool, transform, validateUrl: ssrfGuard.validate });
+const scanCtrl   = new ScanController({ runner, ssrfGuard });
+
+// [planned, P5] — auth + history
+const authSvc    = new AuthService({ jwtSecret: env.JWT_SECRET });
+const usersRepo  = new UsersRepo(db);
+const scansRepo  = new ScansRepo(db);
+const authCtrl   = new AuthController({ authSvc, usersRepo });
+const requireAuth = makeRequireAuth(authSvc);
+
+app.use('/api/auth',  makeAuthRouter(authCtrl));
+app.use('/api/scans', requireAuth, makeScansRouter(scanCtrl, scansRepo));
 ```
 
-**Frontend composition root (`frontend/src/main.jsx`):**
+**Frontend composition root.**
+
+`frontend/src/main.jsx` mounts `<App/>`; `App.jsx` owns the
+`BrowserRouter` + `Routes` (PR #40). The `ApiClient` singleton is
+imported from `lib/apiClient.js` directly today — wrapping it in a
+context only becomes useful when auth state lands in P5:
 
 ```jsx
-// pseudo-code — [planned, P3/P5]
-const api = new ApiClient({ baseUrl: '/api' });
+// shipped (PR #40)
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
+// [planned, P5] — providers around the router for auth state
+const api = apiClient; // already a singleton
 ReactDOM.createRoot(document.getElementById('root')).render(
   <ApiProvider value={api}>
-    <AuthProvider api={api}>           {/* P5 */}
-      <RouterProvider router={router}/>
+    <AuthProvider api={api}>
+      <App />
     </AuthProvider>
   </ApiProvider>
 );
@@ -1140,23 +1189,33 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 | `useScan`              | `ApiClient`                                  | render in a test wrapper with a stub api |
 | Page components        | hooks                                        | `vi.mock('../hooks/useScan', …)`         |
 
-### 6.6 Mapping back to today's repo
+### 6.6 Where today's repo sits on this map
 
-Today the backend has none of the above classes — it has one file
-(`backend/index.js`) with three inline route handlers reading a
-mock module. **That's fine.** The point of §6 is to make the
-direction-of-travel explicit so each new piece lands in the right
-slot:
+**What shipped in Phase 1 + 3 (PRs #38, #40).** The backend now has
+the layered structure described above: `routes/` → `controllers/` →
+`services/` (`axeTransformer` stub, `ssrfGuard`), with `app.js` as the
+composition root. The frontend uses `react-router-dom` v7, with
+`pages/` for screens, `hooks/` for state machines (`useScan`,
+`useProblem`), `lib/apiClient.js` as the only file that calls `fetch`,
+and `utils/urlValidator.js` for client-side URL checks. The
+`/problems/:id` route is real and refresh-safe. CORS reads
+`FRONTEND_ORIGIN` from `.env`, and tests run via `node:test` +
+`supertest` (backend, 17 / 17) and Vitest (frontend, 19 / 19).
 
-| Today                          | Goes to (phase)                                       |
-| ------------------------------ | ----------------------------------------------------- |
-| inline `app.post('/api/scan')` | `routes/scan.js` + `ScanController.postScan` (P1)     |
-| `mockScanResults` import       | replaced by `runner.run(url)` (P2); kept as a P1 test fixture |
-| `cors({ origin: 'http://...' })` | reads `FRONTEND_ORIGIN` env (P1)                    |
-| `fetch('/api/scan-results…')` in `ScanResults.jsx` | `useScan(url)` → `ApiClient.getScanResults(url)` (P3 refactor, optional earlier) |
-| `selectedProblem` in component state | `/problems/:id` route + `useProblem(id)` hook (P3) |
-| `window.location.href = …` in `landingPage.jsx` | `useNavigate()` + `apiClient.runScan(url)` (P2/P3) |
+For the full before/after detail and the migration mapping, see
+[`codebase-reorganization.md`](codebase-reorganization.md).
 
-Each row above is a small, mechanical refactor — not a rewrite.
-That's the test of whether the architecture in §6 is right: if
-adopting it requires throwing today's code away, it's wrong.
+**What still has to land before §6.3 / §6.4 are fully realized:**
+
+| Slot                                    | Phase | What's missing                                                  |
+| --------------------------------------- | ----- | --------------------------------------------------------------- |
+| `services/scanRunner.js` + `BrowserPool` | P2   | Real Puppeteer driver replacing the `mockScanResults` injection |
+| `services/axeTransformer.js` body       | P2    | Implement the chosen response shape (Option A/B/C)              |
+| Loading/error/empty UI on results page  | P3    | Drive from `useScan`'s `{ data, loading, error }` triple        |
+| Severity badges / WCAG filters / "Needs review" bucket | P3 | Need real axe data first                                |
+| `services/authService.js`, `db/`, repos | P5    | Auth + persistence; `LoginPage`, `MyScansPage`, `useAuth`       |
+| `ApiProvider` / `AuthProvider` context  | P5    | Wrap `<App/>` once auth state needs to live above the router    |
+
+Each row is a small, mechanical addition — not a rewrite. That's the
+test of whether the architecture in §6 is right: if landing it
+requires throwing today's code away, it's wrong.
